@@ -45,7 +45,7 @@ Ncoil = 18
 haa = 6.636 #m
 t_insu = 1e-3 # m, isolation additional radius
 
-sigma_max      = 600e6 # Pa
+sigma_max = 600e6 # Pa
 
 
 
@@ -90,7 +90,8 @@ def outer_radius_2(r2, Ncoil, beta_N = beta_N):
 def Scable(Icable = Icable, beta_N = beta_N):
     # Icable = N_strand * Ic
     # Scable = N_strand * S_strand * (2/0.7) + S_channel
-    
+
+    re = R(beta_N)*(1-eps) - Dint    
     Bmagnet = k_B *B(beta_N)*R(beta_N)/re
     Ic = 308.3 - 20.427*Bmagnet
     Nstrand = Icable//Ic + 1
@@ -105,6 +106,7 @@ def Dcable(Icable = Icable, beta_N = beta_N):
 
 # Total number of turns of the cable
 def NTFS(Icable = Icable, beta_N = beta_N):
+    re = R(beta_N)*(1-eps) - Dint 
     Bmagnet = k_B *B(beta_N)*R(beta_N)/re
     NI_tot = 5*10**6*re*Bmagnet
     
@@ -126,6 +128,7 @@ def inner_radius(Icable = Icable, beta_N = beta_N):
 def L_TFS(Icable = Icable,  beta_N = beta_N):
     R0 = R(beta_N)
     re = R0 - eps*R0 - Dint
+    r2 = R2(beta_N = beta_N)
     k = np.log(r2/re)/2
     L = mu_0*np.sqrt(re*r2)*(NTFS(Icable, beta_N)*k)**2/2*(scs.i0(k) + 2*scs.i1(k) + scs.iv(2, k))
     return L
@@ -140,13 +143,12 @@ def Total_length_cable(Icable = Icable, beta_N = beta_N):
 
 def sigma_tot(thick, Icable = Icable,  beta_N = beta_N):
     R0 = R(beta_N)
-    re = R0 - eps*R0 - Dint
+    re = R0*(1-eps) - Dint
     ri = inner_radius(Icable, beta_N)
     Bmagnet = k_B *B(beta_N)*R(beta_N)/re
     NI_tot = 5*10**6*re*Bmagnet
-    r2 = R2(beta_N = beta_N)
-    
-    sigma_hoop   = Bmagnet**2*(re+ri)**2/(8*mu_0*haa*ri)*np.log(2*r2/(re+ri))
+    r2 = R2(beta_N)  
+    sigma_hoop = Bmagnet**2*(re+ri)**2/(8*mu_0*haa*ri)*np.log(2*r2/(re+ri))
     #print(r'sigma_hoop = {} MPa'.format(sigma_hoop/10**6))
     sigma_center = (NI_tot*(Bmagnet/2)/(2*np.pi*ri))*ri/thick
     return sigma_center + sigma_hoop
@@ -159,12 +161,74 @@ def inner_radius_nose(Icable = Icable,  beta_N = beta_N):
     return thick, rpi
 
 def R2(beta_N = beta_N, delta = 0.25):
-    R0 = R(beta_N)
     r2 = 10.5
-    while outer_radius_2(r2, Ncoil, beta_N) > 1e-2 or abs(2*np.pi*r2/Ncoil - 3.5) > delta:
+    while (outer_radius_2(r2, Ncoil, beta_N) > 1e-2) or (abs(2*np.pi*r2/Ncoil - 3.5) > delta ):
         r2 += 1e-3
     return r2
 
+
+#------------------------------------------------------------------------------
+"Study of the Central Solenoid"
+Icable_CS = 40e3
+B_CS = 13
+sigma_max_CS = 400e6
+
+def thickness_CS(Icable = Icable,  beta_N = beta_N):
+    re_CS = inner_radius_nose(Icable,  beta_N)[1] - 0.1
+    thick = 1e-2
+    while B_CS**2/mu_0 *(re_CS - thick)/thick > sigma_max_CS:
+        thick += 1e-3
+    return thick, re_CS - thick
+
+
+# def external_radius_CS(Icable = Icable,  beta_N = beta_N):
+#     return inner_radius_nose(Icable,  beta_N)[1] - 0.1
+
+# Gives the different cross-sections inside the CS (in mm^2)
+def cross_sections_CS(Icable_CS = Icable_CS, B_CS = B_CS):
+    Ic_CS = 394.05-B_CS*25.94
+    N_strand_CS = Icable_CS//Ic_CS +1
+    
+    #Cross-section of one strand
+    A_strand_CS = np.pi*0.93**2
+    #Cross-section of Strand + Cu wires inside one cable of the CS
+    A_Cu_Nb3Sn_CS = N_strand_CS*A_strand_CS*1.25
+    #Cross-section of the cable inside the CS
+    A_cable_CS    = A_Cu_Nb3Sn_CS*1.34 + np.pi*9**2
+    
+    return A_strand_CS, A_Cu_Nb3Sn_CS, A_cable_CS
+    
+
+# Gives the different critical current densities in the CS (A/mm^2)
+def critical_Jc_CS(Icable_CS = Icable_CS, B_CS = B_CS):
+    Ic_CS = 394.05-B_CS*25.94
+    N_strand_CS = Icable_CS//Ic_CS +1
+    A_strand_CS, A_Cu_Nb3Sn_CS, A_cable_CS = cross_sections_CS(Icable_CS, B_CS)
+    
+    #Jc for one strand
+    Jc_strand_CS = Ic_CS/A_strand_CS
+    
+    #Jc for Cu + strain
+    Jc_wires_CS = Ic_CS/(A_strand_CS*1.25)
+    
+    #Jc for the cable
+    Jc_cable_CS = Ic_CS*N_strand_CS/A_cable_CS
+    
+    return Jc_strand_CS, Jc_wires_CS, Jc_cable_CS
+
+
+
+# Study of the CS
+thick_cs, re_cs = thickness_CS(Icable,  beta_N)
+
+A_strand_cs, A_Cu_Nb3Sn_cs, A_cable_cs = cross_sections_CS(Icable_CS, B_CS)
+Jc_strand_cs, Jc_wires_cs, Jc_cable_cs = critical_Jc_CS(Icable_CS, B_CS)
+
+#Diameter of one cable inside the Central Solenoid (mm)
+D_cable_cs = np.sqrt(4/np.pi*A_cable_cs)
+
+# Inner radius
+ri_cs = re_cs - B_CS/mu_0/Icable_CS*(A_cable_cs*10**(-6))
 
 #------------------------------------------------------------------------------
 "Functions for the presentation"
@@ -182,10 +246,17 @@ def camembert_radii(Icable = Icable,  beta_N = beta_N):
 # Gives the different surfaces (in mm^2) that were found during this study 
 # WARNING : thickness of the isolating components not taken into account yet   
 def camembert_surfaces(Icable = Icable,  beta_N = beta_N):
+    
+    # Cross-section of a superconductor strand
     S_trand = np.pi*0.4**2
+    
+    # Cross-section of the superconductor itself inside a strand
     S_superconductor = S_trand/4
     
+    # Total Cross-section of the cable (including the hole for He)
     N_strand, S_cable = Scable(Icable, beta_N)
+    
+    # Cross-section of strand + Cu wires inside one cable
     S_Cu_Nb3Sn = 2*S_trand*N_strand
     
     # Cross-section of the cables inside one TF coil
@@ -213,61 +284,20 @@ def camembert_Jc(Icable = Icable,  beta_N = beta_N):
     N_strand, S_cable = Scable(Icable, beta_N)
     Stot = np.pi*(re**2 - rpi**2)*10**6 # mm^2
     
-    magnet = k_B * (B0*R0/re)
+    Bmagnet = k_B * (B0*R0/re)
     Ic_strain = 308.3 - 20.427*Bmagnet
     
     Jc_strain = Ic_strain/(np.pi*0.4**2) # For the wire, A/mm^2
     Jc_super  = Jc_strain*4 # For the superconductor itself, A/mm^2
     Jc_Cu     = Jc_strain/2 # For Cu + strain, A/mm^2
-    Jc_cable  = Jc_strain/2.6 # For the cable without inox 
-    Jc_inox   = Jc_cable*S_cable/(Stot/NTFS(Icable, beta_N)) # For the cable with inox
+    Jc_cable  = Ic_strain*N_strand/S_cable # For the cable without inox 
+    Jc_inox   = Ic_strain*N_strand/(Stot/NTFS(Icable, beta_N)) # For the cable with inox
     
     return Jc_super, Jc_strain, Jc_Cu, Jc_cable, Jc_inox
     
     
     
     
-
-# R0 = R(beta_N)
-# B0 = B(beta_N)
-# re = R0 - eps*R0 - Dint
-# Bmagnet = k_B * (B0*R0/re)
-# NI_tot = 5*10**6*re*Bmagnet
-
-# N_strand, S_cable = Scable(Icable, beta_N) # mm^2
-# J_cable = Jcable(Icable, beta_N) # A/mm^2
-# D_cable = Dcable(Icable, beta_N) # mm
-# N_TFS   = NTFS(Icable, beta_N)
-# N_TF    = NTF(Icable, beta_N)
-# ri      = inner_radius(Icable, beta_N) # m
-
-# # The thickness of the inox nose is found to be 0.27 m approximately
-# thickness, rpi = inner_radius_nose(Icable,  beta_N)
-
-# # Values of the different critical current densities
-# Ic_strain = 308.3 - 20.427*Bmagnet
-
-# Jc_strain = Ic_strain/(np.pi*0.4**2) # For the wire, A/mm^2
-# Jc_super  = Jc_strain*4 # For the superconductor itself, A/mm^2
-# Jc_Cu     = Jc_strain/2 # For Cu + strain, A/mm^2
-# Jc_cable  = Jc_strain/2.6 # For the cable without inox
-
-# # Value of the mean Laplace force inside the intern leg of the TF coils
-
-# Fl_cable = Icable*(Bmagnet/2) # N/m
-
-# Fl_tot   = NI_tot*(Bmagnet/2) # N/m
-
-# Fl_coil = Fl_tot/Ncoil # N/m
-
-# # Energy contained inside the whole TF coils
-# E_TFS = L_TFS(Icable, beta_N)*Icable**2/2 # in J
-
-
-# # total length of the cable
-# L_cable = Total_length_cable(Icable, beta_N)
-
-
 # ------------------------------------------------------------------------------- 
 "Plots"
 
@@ -322,8 +352,7 @@ def plot_r2_2(beta_N = beta_N, delta = 0.25):
 
 def plot_sigma_tot(beta_N = beta_N, Icable = Icable, npoints = 500):
     thick_list = np.logspace(-3, 2, npoints)
-    sigma_list = [sigma_tot(thick, beta_N, Icable)/sigma_max for thick in thick_list]
-    
+    sigma_list = [sigma_tot(thick, Icable, beta_N)/sigma_max for thick in thick_list]
     plt.figure()
     plt.plot(thick_list, sigma_list, label = r'$\sigma / \sigma_{max}$')
     plt.plot(thick_list, npoints*[1])
@@ -361,7 +390,7 @@ Ic_strain = 308.3 - 20.427*Bmagnet
 Jc_strain = Ic_strain/(np.pi*0.4**2) # For the wire, A/mm^2
 Jc_super  = Jc_strain*4 # For the superconductor itself, A/mm^2
 Jc_Cu     = Jc_strain/2 # For Cu + strain, A/mm^2
-Jc_cable  = Jc_strain/2.6 # For the cable without inox
+Jc_cable  = Ic_strain*N_strand/S_cable # For the cable without inox
 
 # Value of the mean Laplace force inside the intern leg of the TF coils
 
@@ -377,6 +406,8 @@ E_TFS = L_TFS(Icable, beta_N)*Icable**2/2 # in J
 
 # total length of the cable
 L_cable = Total_length_cable(Icable, beta_N)
+
+
 
 # -----------------------------------------------------------------------------------
 "Orders"
